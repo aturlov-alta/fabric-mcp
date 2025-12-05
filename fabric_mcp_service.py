@@ -56,6 +56,11 @@ class FabricMCPService:
     def _validate_sql_identifier(cls, identifier: str) -> bool:
         """Validate that a SQL identifier contains only safe characters.
         
+        This method provides SQL injection protection for identifiers (table names, 
+        column names, schema names) which cannot be parameterized in SQL queries.
+        Unlike values, SQL does not support parameterizing identifiers, so strict
+        validation before string interpolation is the industry-standard approach.
+        
         Validation rules:
         - Must start with a letter (a-zA-Z)
         - Can contain letters, numbers, and underscores after the first character
