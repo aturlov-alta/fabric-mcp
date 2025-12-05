@@ -13,8 +13,9 @@ This MCP server exposes tools that allow GitHub Copilot to:
 
 - Python 3.12+
 - Conda (recommended) or Python virtual environment
-- Microsoft Entra ID app registration with Fabric API permissions
+- ODBC Driver 17 (or 18) for SQL Server
 - GitHub Copilot in VS Code
+- (Optional) Microsoft Entra ID app registration for service principal authentication
 
 ## Setup
 
@@ -28,13 +29,28 @@ conda activate ./env
 ### 2. Install dependencies
 
 ```bash
-pip install fastmcp python-dotenv msal httpx
+pip install fastmcp python-dotenv msal httpx pyodbc
 pip freeze > requirements.txt
 ```
 
 ### 3. Configure authentication
 
-Copy `.env.example` to `.env` and fill in your Azure AD app registration details:
+The server supports two authentication modes:
+
+#### Option 1: Interactive Authentication (Recommended for Individual Users)
+
+**No configuration needed!** The server uses device code flow by default.
+
+On first run, you'll see a prompt in the MCP server output with:
+- A URL to visit (https://microsoft.com/devicelogin)
+- A code to enter
+- Instructions to sign in with your Microsoft account
+
+Tokens are cached in `~/.fabric_mcp_token_cache.json` and will be refreshed automatically.
+
+#### Option 2: Service Principal Authentication (For Automation)
+
+Copy `.env.example` to `.env` and configure service principal credentials:
 
 ```bash
 cp .env.example .env
@@ -46,6 +62,8 @@ FABRIC_CLIENT_ID=your_client_id_here
 FABRIC_CLIENT_SECRET=your_client_secret_here
 FABRIC_TENANT_ID=your_tenant_id_here
 ```
+
+The presence of `FABRIC_CLIENT_SECRET` triggers service principal authentication.
 
 ### 4. Run the MCP server
 
@@ -90,6 +108,97 @@ Lists all lakehouses in a specific workspace.
   "lakehouses": [
     {"id": "lakehouse-id", "name": "Lakehouse Name"}
   ]
+}
+```
+
+### `get_lakehouse_tables(workspace_id: str, lakehouse_id: str)`
+Get all tables in a lakehouse. Works with both schema-enabled and schema-less lakehouses using SQL-based discovery.
+
+**Parameters:**
+- `workspace_id` (str): The ID of the workspace
+- `lakehouse_id` (str): The ID of the lakehouse
+
+**Returns:**
+```json
+{
+  "tables": [
+    {
+      "schema": "bronze",
+      "name": "Customer",
+      "type": "BASE TABLE",
+      "full_name": "bronze.Customer"
+    }
+  ]
+}
+```
+
+### `get_table_schema(workspace_id: str, lakehouse_id: str, table_name: str)`
+Get detailed schema information for a table including column definitions.
+
+**Parameters:**
+- `workspace_id` (str): The ID of the workspace
+- `lakehouse_id` (str): The ID of the lakehouse
+- `table_name` (str): The name of the table
+
+**Returns:**
+```json
+{
+  "table_name": "Customer",
+  "columns": [
+    {
+      "name": "CustomerID",
+      "data_type": "int",
+      "is_nullable": false,
+      "position": 1
+    }
+  ]
+}
+```
+
+### `get_table_sample_data(workspace_id: str, lakehouse_id: str, table_name: str, limit: int = 10)`
+Get sample data from a table.
+
+**Parameters:**
+- `workspace_id` (str): The ID of the workspace
+- `lakehouse_id` (str): The ID of the lakehouse
+- `table_name` (str): The name of the table
+- `limit` (int): Number of rows to return (default: 10)
+
+**Returns:**
+```json
+{
+  "table_name": "Customer",
+  "sample_rows": [{"CustomerID": 1, "Name": "John"}],
+  "row_count": 10
+}
+```
+
+### `execute_custom_sql_query(workspace_id: str, lakehouse_id: str, query: str)`
+Execute a custom SQL query against a lakehouse.
+
+**Parameters:**
+- `workspace_id` (str): The ID of the workspace
+- `lakehouse_id` (str): The ID of the lakehouse
+- `query` (str): The SQL query to execute
+
+**Returns:**
+```json
+{
+  "query": "SELECT * FROM bronze.Customer",
+  "success": true,
+  "row_count": 100,
+  "results": [{"CustomerID": 1, "Name": "John"}]
+}
+```
+
+### `sign_out()`
+Sign out and clear cached authentication tokens (interactive auth only).
+
+**Returns:**
+```json
+{
+  "status": "success",
+  "message": "Signed out successfully."
 }
 ```
 

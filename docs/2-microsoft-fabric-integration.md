@@ -38,17 +38,28 @@ graph TD
 
 ## Authentication Setup
 
-### Service Principal Configuration
+### Dual Authentication Support
+The server supports two authentication modes that are automatically selected based on environment configuration:
+
+#### Interactive Authentication (Default)
+- **Device Code Flow**: User-friendly browser-based authentication
+- **Power BI Client ID**: Uses well-known Power BI client ID (`ea0616ba-638b-4df5-95b9-636659ae5121`)
+- **Token Caching**: Tokens cached in `~/.fabric_mcp_token_cache.json` with automatic refresh
+- **Multi-tenant Support**: Works with any Microsoft account using 'common' tenant
+- **User Experience**: Auth prompt appears in MCP server output logs with device code and URL
+
+#### Service Principal Authentication
 - **Azure AD App Registration**: Create service principal with appropriate permissions
-- **Power BI API Scope**: Use `https://analysis.windows.net/powerbi/api/.default` for Fabric access
-- **Token Acquisition**: Use MSAL library with confidential client application
-- **Environment Variables**: Store CLIENT_ID, CLIENT_SECRET, TENANT_ID securely
+- **Trigger**: Automatically used when `FABRIC_CLIENT_SECRET` environment variable is set
+- **Token Acquisition**: Uses MSAL `ConfidentialClientApplication` for client credentials flow
+- **Environment Variables**: Requires CLIENT_ID, CLIENT_SECRET, TENANT_ID
 - **Authority URL**: Format as `https://login.microsoftonline.com/{TENANT_ID}`
 
 ### Key Authentication Points
-- **Fabric Permission**: Service principal needs Power BI API access, not just Azure Resource Manager
-- **Token Caching**: Cache tokens until expiry to avoid unnecessary requests
-- **Error Handling**: Handle token acquisition failures gracefully
+- **Power BI API Scope**: Use `https://analysis.windows.net/powerbi/api/.default` for Fabric access
+- **Fabric Permission**: Requires Power BI API access, not just Azure Resource Manager
+- **Token Refresh**: MSAL handles silent token refresh using cached refresh tokens
+- **Error Handling**: Handle token acquisition failures gracefully with user-friendly messages
 - **Scope Configuration**: Single scope `.default` is sufficient for most Fabric operations
 
 ## REST API Integration
@@ -75,16 +86,19 @@ graph TD
 ## SQL Endpoint Integration
 
 ### Connection Architecture
-- **ODBC Driver**: Use "ODBC Driver 18 for SQL Server" for lakehouse connections
-- **SQL Endpoint**: Extract from lakehouse properties via REST API call
+- **ODBC Driver**: Use "ODBC Driver 17 for SQL Server" (or 18) for lakehouse connections
+- **SQL Endpoint**: Extract server address from lakehouse properties via REST API call
 - **Database Name**: Use lakehouse `displayName` as database name in connection
-- **Authentication**: Service Principal authentication with UID/PWD parameters
+- **Authentication**: Access token-based authentication using `attrs_before` parameter
+- **Token Format**: Token length (4 bytes, little-endian) + UTF-16-LE encoded token bytes
 - **Connection Security**: Enable encryption, disable certificate trust for managed service
 
 ### Schema Discovery Approach
-- **INFORMATION_SCHEMA**: Query system views for table and column metadata
+- **SQL-Based Discovery**: Use `INFORMATION_SCHEMA.TABLES` for universal lakehouse support
+- **Schema-Enabled Support**: SQL approach works with both schema-enabled and schema-less lakehouses
+- **Table Listing**: Query `TABLE_SCHEMA`, `TABLE_NAME`, `TABLE_TYPE` from system views
+- **Column Details**: Retrieve data types, nullability, precision, and ordinal position from `INFORMATION_SCHEMA.COLUMNS`
 - **Simple Queries**: Avoid complex JOINs - use basic SELECT statements for reliability
-- **Column Details**: Retrieve data types, nullability, precision, and ordinal position
 - **Performance**: Query specific tables rather than entire schema when possible
 
 ### Data Sampling Strategy
@@ -109,7 +123,8 @@ graph TD
 5. **Data**: Sample table content and execute analytics queries
 
 ## Key Dependencies
-- **Authentication**: `msal` for Azure AD token acquisition
+- **MCP Framework**: `fastmcp` for Model Context Protocol server implementation
+- **Authentication**: `msal` for Azure AD token acquisition (both interactive and service principal)
 - **HTTP Client**: `httpx` for async REST API calls
-- **Database**: `pyodbc` with ODBC Driver 18 for SQL Server
+- **Database**: `pyodbc` for SQL connectivity (requires ODBC Driver 17 or 18 for SQL Server)
 - **Environment**: `python-dotenv` for configuration management
