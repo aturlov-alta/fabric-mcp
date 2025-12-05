@@ -34,6 +34,10 @@ class FabricMCPService:
     All errors are caught and returned as part of response dictionaries
     to integrate cleanly with MCP tool definitions.
     """
+    
+    # SQL identifier validation pattern: starts with letter, followed by alphanumeric/underscores
+    # Optionally supports schema.table notation with a single dot
+    _SQL_IDENTIFIER_PATTERN = r'^[a-zA-Z][a-zA-Z0-9_]*(?:\.[a-zA-Z][a-zA-Z0-9_]*)?$'
 
     def __init__(self) -> None:
         """Initialize service with auth provider and API/SQL clients.
@@ -48,9 +52,16 @@ class FabricMCPService:
         self.fabric_api = FabricAPIClient(self.auth_provider)
         self.fabric_sql = FabricSQLClient(self.auth_provider, self.fabric_api)
     
-    @staticmethod
-    def _validate_sql_identifier(identifier: str) -> bool:
+    @classmethod
+    def _validate_sql_identifier(cls, identifier: str) -> bool:
         """Validate that a SQL identifier contains only safe characters.
+        
+        Validation rules:
+        - Must start with a letter (a-zA-Z)
+        - Can contain letters, numbers, and underscores after the first character
+        - Maximum length of 256 characters
+        - Optionally supports schema.table notation with a single dot separator
+        - Both schema and table parts must follow the same naming rules
         
         Args:
             identifier: The SQL identifier to validate (table name, schema name, etc.)
@@ -58,30 +69,26 @@ class FabricMCPService:
         Returns:
             bool: True if the identifier is safe, False otherwise
         """
-        # Allow alphanumeric, underscores, and dots (for schema.table notation)
         # Must not be empty and should follow reasonable naming conventions
         if not identifier or len(identifier) > 256:
             return False
         
-        # Pattern requires identifiers start with a letter, followed by letters, numbers, or underscores
-        # Allows a single dot for schema.table notation, where both parts must follow the same rules
-        pattern = r'^[a-zA-Z][a-zA-Z0-9_]*(?:\.[a-zA-Z][a-zA-Z0-9_]*)?$'
-        return bool(re.match(pattern, identifier))
+        return bool(re.match(cls._SQL_IDENTIFIER_PATTERN, identifier))
     
     @staticmethod
-    def _get_invalid_identifier_error(table_name: str) -> str:
+    def _get_invalid_identifier_error(identifier: str) -> str:
         """Get standardized error message for invalid SQL identifiers.
         
         Args:
-            table_name: The invalid table name
+            identifier: The invalid SQL identifier
             
         Returns:
             str: Descriptive error message
         """
         return (
-            f"Invalid table name format. Table name must contain only "
-            f"alphanumeric characters, underscores, and optionally a single dot "
-            f"for schema.table notation. Got: {table_name}"
+            f"Invalid SQL identifier format. Identifier must start with a letter, "
+            f"contain only alphanumeric characters and underscores, and optionally "
+            f"use a single dot for schema.table notation (max 256 chars). Got: {identifier}"
         )
 
     # Workspace and lakehouse operations
