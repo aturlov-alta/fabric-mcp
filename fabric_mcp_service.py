@@ -47,6 +47,46 @@ class FabricMCPService:
         self.fabric_api = FabricAPIClient(self.auth_provider)
         self.fabric_sql = FabricSQLClient(self.auth_provider, self.fabric_api)
 
+    @staticmethod
+    def _validate_sql_identifier(identifier: str) -> None:
+        """Validate that an identifier contains only safe characters for SQL.
+        
+        Args:
+            identifier: SQL identifier (table name, schema name, etc.)
+            
+        Raises:
+            ValueError: If identifier contains invalid characters
+        """
+        if not identifier:
+            raise ValueError("Identifier cannot be empty")
+        
+        # Allow alphanumeric, underscore, and hyphen (common in Fabric table names)
+        # Disallow quotes, brackets, semicolons, and other SQL metacharacters
+        invalid_chars = set(identifier) - set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-")
+        if invalid_chars:
+            raise ValueError(f"Invalid characters in identifier: {invalid_chars}")
+    
+    @staticmethod
+    def _quote_identifier(identifier: str) -> str:
+        """Quote a SQL identifier for safe use in queries.
+        
+        Uses square brackets for T-SQL (SQL Server/Fabric) identifier quoting.
+        Validates identifier before quoting to prevent injection attacks.
+        
+        Args:
+            identifier: SQL identifier to quote
+            
+        Returns:
+            str: Quoted identifier safe for SQL queries
+            
+        Raises:
+            ValueError: If identifier contains invalid characters
+        """
+        FabricMCPService._validate_sql_identifier(identifier)
+        # Escape any existing square brackets by doubling them
+        escaped = identifier.replace("]", "]]")
+        return f"[{escaped}]"
+
     # Workspace and lakehouse operations
     async def list_workspaces(self) -> dict[str, Any]:
         """Fetch all accessible Fabric workspaces via REST API.
@@ -136,20 +176,33 @@ class FabricMCPService:
             } or {"table_name": str, "columns": [], "error": str} on failure
         """
         # Parse schema.table format if provided, and validate input
-        dot_count = table_name.count(".")
-        if dot_count == 1:
-            schema_name, table_only = table_name.split(".", 1)
-            schema_filter = f"TABLE_SCHEMA = '{schema_name}' AND TABLE_NAME = '{table_only}'"
-        elif dot_count == 0:
-            schema_filter = f"TABLE_NAME = '{table_name}'"
-        else:
+        try:
+            dot_count = table_name.count(".")
+            if dot_count == 1:
+                schema_name, table_only = table_name.split(".", 1)
+                # Validate both parts to prevent SQL injection
+                self._validate_sql_identifier(schema_name)
+                self._validate_sql_identifier(table_only)
+                # Use parameterized approach with validated identifiers
+                schema_filter = f"TABLE_SCHEMA = {self._quote_identifier(schema_name)} AND TABLE_NAME = {self._quote_identifier(table_only)}"
+            elif dot_count == 0:
+                # Validate table name to prevent SQL injection
+                self._validate_sql_identifier(table_name)
+                schema_filter = f"TABLE_NAME = {self._quote_identifier(table_name)}"
+            else:
+                return {
+                    "table_name": table_name,
+                    "columns": [],
+                    "error": (
+                        "Invalid table name format. "
+                        "Expected 'table' or 'schema.table', got: '{}'".format(table_name)
+                    ),
+                }
+        except ValueError as e:
             return {
                 "table_name": table_name,
                 "columns": [],
-                "error": (
-                    "Invalid table name format. "
-                    "Expected 'table' or 'schema.table', got: '{}'".format(table_name)
-                ),
+                "error": f"Invalid table name: {str(e)}",
             }
 
         schema_query = f"""
@@ -212,12 +265,28 @@ class FabricMCPService:
             } or {..., "row_count": 0, "error": str} on failure
         """
         # Construct SQL with proper schema qualification if provided
-        if "." in table_name:
-            parts = table_name.split(".")
-            qualified_name = "].[".join(parts)
-            sample_query = f"SELECT TOP {limit} * FROM [{qualified_name}]"
-        else:
-            sample_query = f"SELECT TOP {limit} * FROM [{table_name}]"
+        try:
+            if "." in table_name:
+                parts = table_name.split(".", 1)
+                if len(parts) != 2:
+                    raise ValueError("Invalid table name format")
+                schema_name, table_only = parts
+                # Validate both parts to prevent SQL injection
+                self._validate_sql_identifier(schema_name)
+                self._validate_sql_identifier(table_only)
+                # Use properly quoted identifiers
+                sample_query = f"SELECT TOP {limit} * FROM {self._quote_identifier(schema_name)}.{self._quote_identifier(table_only)}"
+            else:
+                # Validate table name to prevent SQL injection
+                self._validate_sql_identifier(table_name)
+                sample_query = f"SELECT TOP {limit} * FROM {self._quote_identifier(table_name)}"
+        except ValueError as e:
+            return {
+                "table_name": table_name,
+                "sample_rows": [],
+                "row_count": 0,
+                "error": f"Invalid table name: {str(e)}",
+            }
 
         try:
             results = await self.fabric_sql.execute_query(workspace_id, lakehouse_id, sample_query)
