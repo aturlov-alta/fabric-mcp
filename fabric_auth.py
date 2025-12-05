@@ -43,7 +43,7 @@ class InteractiveAuthProvider(BaseAuthProvider):
     
     def __init__(
         self,
-        client_id: str = "04b07795-8ddb-461a-bbee-02f9e1bf7b46",  # Azure CLI default
+        client_id: str = "ea0616ba-638b-4df5-95b9-636659ae5121",  # Power BI default
         tenant_id: str = "common",
         token_cache_file: Path = None
     ):
@@ -51,7 +51,7 @@ class InteractiveAuthProvider(BaseAuthProvider):
         Initialize interactive authentication provider.
         
         Args:
-            client_id: Azure AD application (client) ID
+            client_id: Azure AD application (client) ID (default: Power BI client ID)
             tenant_id: Azure AD tenant ID or 'common' for multi-tenant
             token_cache_file: Path to token cache file (default: ~/.fabric_mcp_token_cache.json)
         """
@@ -65,6 +65,20 @@ class InteractiveAuthProvider(BaseAuthProvider):
         
         self._token_cache = self._load_token_cache()
         self._app = None
+    
+    def clear_token_cache(self) -> bool:
+        """
+        Clear the cached authentication tokens (sign out).
+        
+        Returns:
+            bool: True if cache was deleted, False if no cache existed
+        """
+        if self.token_cache_file.exists():
+            self.token_cache_file.unlink()
+            self._token_cache = msal.SerializableTokenCache()
+            self._app = None  # Reset app to force re-initialization
+            return True
+        return False
     
     def _load_token_cache(self) -> msal.SerializableTokenCache:
         """Load token cache from file or create new one."""
@@ -115,25 +129,34 @@ class InteractiveAuthProvider(BaseAuthProvider):
                 return result["access_token"]
         
         # If silent acquisition fails, use device code flow
-        print("\n🔐 Authentication required for Microsoft Fabric")
-        print("=" * 60)
+        import sys
+        print("\n" + "=" * 70, file=sys.stderr)
+        print("AUTHENTICATION REQUIRED FOR MICROSOFT FABRIC", file=sys.stderr)
+        print("=" * 70, file=sys.stderr)
         
         flow = app.initiate_device_flow(scopes=scope)
         if "user_code" not in flow:
             raise Exception(f"Failed to create device flow: {flow.get('error_description', 'Unknown error')}")
         
-        print(flow["message"])
-        print("=" * 60)
+        print(flow["message"], file=sys.stderr)
+        print("=" * 70, file=sys.stderr)
+        print("Please complete authentication within 5 minutes.", file=sys.stderr)
+        print("=" * 70 + "\n", file=sys.stderr)
         
         # Wait for user to authenticate
         result = app.acquire_token_by_device_flow(flow)
         
         if "access_token" in result:
             self._save_token_cache()
-            print("✅ Authentication successful!\n")
+            import sys
+            print("=" * 70, file=sys.stderr)
+            print("Authentication successful!", file=sys.stderr)
+            print("=" * 70 + "\n", file=sys.stderr)
             return result["access_token"]
         else:
             error_msg = result.get('error_description', 'Unknown error')
+            import sys
+            print(f"\nAuthentication failed: {error_msg}", file=sys.stderr)
             raise Exception(f"Could not acquire token: {error_msg}")
 
 
