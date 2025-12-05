@@ -270,17 +270,28 @@ class FabricMCPService:
         """
         # Construct SQL with proper schema qualification if provided
         try:
-            if "." in table_name:
+            dot_count = table_name.count(".")
+            if dot_count == 1:
                 schema_name, table_only = table_name.split(".", 1)
                 # Validate both parts to prevent SQL injection
                 self._validate_sql_identifier(schema_name)
                 self._validate_sql_identifier(table_only)
                 # Use properly quoted identifiers
                 sample_query = f"SELECT TOP {limit} * FROM {self._quote_identifier(schema_name)}.{self._quote_identifier(table_only)}"
-            else:
+            elif dot_count == 0:
                 # Validate table name to prevent SQL injection
                 self._validate_sql_identifier(table_name)
                 sample_query = f"SELECT TOP {limit} * FROM {self._quote_identifier(table_name)}"
+            else:
+                return {
+                    "table_name": table_name,
+                    "sample_rows": [],
+                    "row_count": 0,
+                    "error": (
+                        "Invalid table name format. "
+                        "Expected 'table' or 'schema.table', got: '{}'".format(table_name)
+                    ),
+                }
         except ValueError as e:
             return {
                 "table_name": table_name,
