@@ -63,9 +63,9 @@ class FabricMCPService:
         if not identifier or len(identifier) > 256:
             return False
         
-        # Pattern allows: alphanumeric, underscores, and a single dot for schema.table
-        # Does not allow special characters that could be used for SQL injection
-        pattern = r'^[a-zA-Z0-9_]+(?:\.[a-zA-Z0-9_]+)?$'
+        # Pattern requires identifiers start with a letter, followed by letters, numbers, or underscores
+        # Allows a single dot for schema.table notation, where both parts must follow the same rules
+        pattern = r'^[a-zA-Z][a-zA-Z0-9_]*(?:\.[a-zA-Z][a-zA-Z0-9_]*)?$'
         return bool(re.match(pattern, identifier))
 
     # Workspace and lakehouse operations
@@ -156,7 +156,19 @@ class FabricMCPService:
                 ]
             } or {"table_name": str, "columns": [], "error": str} on failure
         """
-        # Parse schema.table format if provided, and validate input
+        # Validate table_name to prevent SQL injection
+        if not self._validate_sql_identifier(table_name):
+            return {
+                "table_name": table_name,
+                "columns": [],
+                "error": (
+                    f"Invalid table name format. Table name must contain only "
+                    f"alphanumeric characters, underscores, and optionally a single dot "
+                    f"for schema.table notation. Got: {table_name}"
+                ),
+            }
+        
+        # Parse schema.table format if provided
         dot_count = table_name.count(".")
         if dot_count == 1:
             schema_name, table_only = table_name.split(".", 1)
@@ -256,7 +268,7 @@ class FabricMCPService:
         
         # Construct SQL with proper schema qualification if provided
         if "." in table_name:
-            parts = table_name.split(".")
+            parts = table_name.split(".", 1)  # Split into at most 2 parts
             qualified_name = "].[".join(parts)
             sample_query = f"SELECT TOP {limit} * FROM [{qualified_name}]"
         else:
