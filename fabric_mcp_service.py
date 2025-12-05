@@ -214,7 +214,8 @@ class FabricMCPService:
         # Construct SQL with proper schema qualification if provided
         if "." in table_name:
             parts = table_name.split(".")
-            sample_query = f"SELECT TOP {limit} * FROM [{parts[0]}].[{parts[1]}]"
+            qualified_name = "].[".join(parts)
+            sample_query = f"SELECT TOP {limit} * FROM [{qualified_name}]"
         else:
             sample_query = f"SELECT TOP {limit} * FROM [{table_name}]"
 
