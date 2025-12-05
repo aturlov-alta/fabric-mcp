@@ -87,28 +87,46 @@ async def list_lakehouses(workspace_id: str) -> dict[str, Any]:
 async def get_lakehouse_tables(workspace_id: str, lakehouse_id: str) -> dict[str, Any]:
     """
     Get all tables in a specific lakehouse for schema discovery.
-    Only lakehouses without a schema are supported at this time.
+    Works with both schema-enabled and schema-less lakehouses.
 
     Args:
         workspace_id: The ID of the workspace containing the lakehouse
         lakehouse_id: The ID of the lakehouse to query tables from
     
     Returns:
-        Dictionary containing array of tables with their names, types, formats, and locations.
+        Dictionary containing array of tables with their schemas, names, and types.
         Use table names with get_table_schema and get_table_sample_data tools.
     """
-    data = await fabric_api.get(f"/workspaces/{workspace_id}/lakehouses/{lakehouse_id}/tables")
-    tables = []
+    # Use SQL query to discover tables (works for both schema-enabled and schema-less lakehouses)
+    query = """
+    SELECT 
+        TABLE_SCHEMA as schema_name,
+        TABLE_NAME as table_name,
+        TABLE_TYPE as table_type
+    FROM INFORMATION_SCHEMA.TABLES 
+    WHERE TABLE_TYPE = 'BASE TABLE'
+    ORDER BY TABLE_SCHEMA, TABLE_NAME
+    """
     
-    for table in data.get("data", []):
-        tables.append({
-            "name": table.get("name"),
-            "type": table.get("type", "table"),
-            "format": table.get("format", "delta"),
-            "location": table.get("location", f"Tables/{table.get('name')}")
-        })
-    
-    return {"tables": tables}
+    try:
+        results = await fabric_sql.execute_query(workspace_id, lakehouse_id, query)
+        
+        tables = []
+        for row in results:
+            tables.append({
+                "schema": row.get("schema_name"),
+                "name": row.get("table_name"),
+                "type": row.get("table_type", "BASE TABLE"),
+                "full_name": f"{row.get('schema_name')}.{row.get('table_name')}"
+            })
+        
+        return {"tables": tables}
+        
+    except Exception as e:
+        return {
+            "tables": [],
+            "error": f"Failed to retrieve tables: {str(e)}"
+        }
 
 
 # ============================================================================
@@ -233,6 +251,42 @@ async def execute_custom_sql_query(
             "success": False,
             "error": str(e),
             "results": []
+        }
+
+
+# ============================================================================
+# MCP Tools - Authentication Management
+# ============================================================================
+
+@mcp.tool()
+async def sign_out() -> dict[str, str]:
+    """
+    Sign out and clear cached authentication tokens.
+    
+    Use this tool to remove stored credentials and force re-authentication
+    on the next request. Only applicable for interactive authentication mode.
+    
+    Returns:
+        Dictionary with status and message indicating the result of sign-out operation.
+    """
+    from fabric_auth import InteractiveAuthProvider
+    
+    if isinstance(auth_provider, InteractiveAuthProvider):
+        was_deleted = auth_provider.clear_token_cache()
+        if was_deleted:
+            return {
+                "status": "success",
+                "message": "Signed out successfully. You will be prompted to authenticate on the next request."
+            }
+        else:
+            return {
+                "status": "success",
+                "message": "No cached tokens found. Already signed out."
+            }
+    else:
+        return {
+            "status": "not_applicable",
+            "message": "Sign out is not applicable for service principal authentication mode."
         }
 
 
