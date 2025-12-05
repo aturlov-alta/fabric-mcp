@@ -15,6 +15,7 @@ Usage:
 """
 
 from typing import Any
+import re
 from dotenv import load_dotenv
 
 from fabric_auth import create_auth_provider_from_env, InteractiveAuthProvider
@@ -46,6 +47,26 @@ class FabricMCPService:
         self.auth_provider = create_auth_provider_from_env()
         self.fabric_api = FabricAPIClient(self.auth_provider)
         self.fabric_sql = FabricSQLClient(self.auth_provider, self.fabric_api)
+    
+    @staticmethod
+    def _validate_sql_identifier(identifier: str) -> bool:
+        """Validate that a SQL identifier contains only safe characters.
+        
+        Args:
+            identifier: The SQL identifier to validate (table name, schema name, etc.)
+            
+        Returns:
+            bool: True if the identifier is safe, False otherwise
+        """
+        # Allow alphanumeric, underscores, and dots (for schema.table notation)
+        # Must not be empty and should follow reasonable naming conventions
+        if not identifier or len(identifier) > 256:
+            return False
+        
+        # Pattern allows: alphanumeric, underscores, and a single dot for schema.table
+        # Does not allow special characters that could be used for SQL injection
+        pattern = r'^[a-zA-Z0-9_]+(?:\.[a-zA-Z0-9_]+)?$'
+        return bool(re.match(pattern, identifier))
 
     # Workspace and lakehouse operations
     async def list_workspaces(self) -> dict[str, Any]:
@@ -211,6 +232,28 @@ class FabricMCPService:
                 "row_count": int
             } or {..., "row_count": 0, "error": str} on failure
         """
+        # Validate limit parameter to prevent SQL injection
+        if not isinstance(limit, int) or limit <= 0:
+            return {
+                "table_name": table_name,
+                "sample_rows": [],
+                "row_count": 0,
+                "error": f"Invalid limit value. Must be a positive integer, got: {limit}",
+            }
+        
+        # Validate table_name to prevent SQL injection
+        if not self._validate_sql_identifier(table_name):
+            return {
+                "table_name": table_name,
+                "sample_rows": [],
+                "row_count": 0,
+                "error": (
+                    f"Invalid table name format. Table name must contain only "
+                    f"alphanumeric characters, underscores, and optionally a single dot "
+                    f"for schema.table notation. Got: {table_name}"
+                ),
+            }
+        
         # Construct SQL with proper schema qualification if provided
         if "." in table_name:
             parts = table_name.split(".")
