@@ -67,6 +67,22 @@ class FabricMCPService:
         # Allows a single dot for schema.table notation, where both parts must follow the same rules
         pattern = r'^[a-zA-Z][a-zA-Z0-9_]*(?:\.[a-zA-Z][a-zA-Z0-9_]*)?$'
         return bool(re.match(pattern, identifier))
+    
+    @staticmethod
+    def _get_invalid_identifier_error(table_name: str) -> str:
+        """Get standardized error message for invalid SQL identifiers.
+        
+        Args:
+            table_name: The invalid table name
+            
+        Returns:
+            str: Descriptive error message
+        """
+        return (
+            f"Invalid table name format. Table name must contain only "
+            f"alphanumeric characters, underscores, and optionally a single dot "
+            f"for schema.table notation. Got: {table_name}"
+        )
 
     # Workspace and lakehouse operations
     async def list_workspaces(self) -> dict[str, Any]:
@@ -161,11 +177,7 @@ class FabricMCPService:
             return {
                 "table_name": table_name,
                 "columns": [],
-                "error": (
-                    f"Invalid table name format. Table name must contain only "
-                    f"alphanumeric characters, underscores, and optionally a single dot "
-                    f"for schema.table notation. Got: {table_name}"
-                ),
+                "error": self._get_invalid_identifier_error(table_name),
             }
         
         # Parse schema.table format if provided
@@ -259,11 +271,7 @@ class FabricMCPService:
                 "table_name": table_name,
                 "sample_rows": [],
                 "row_count": 0,
-                "error": (
-                    f"Invalid table name format. Table name must contain only "
-                    f"alphanumeric characters, underscores, and optionally a single dot "
-                    f"for schema.table notation. Got: {table_name}"
-                ),
+                "error": self._get_invalid_identifier_error(table_name),
             }
         
         # Construct SQL with proper schema qualification if provided
