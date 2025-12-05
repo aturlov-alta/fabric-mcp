@@ -1,61 +1,65 @@
-# Dual Authentication Support (Design Notes)
+# Dual Authentication Support - COMPLETED
 
-## Context
-- The repository now includes `fabric_auth.py` with two providers:
-  - `ServicePrincipalAuthProvider` (client-credential flow)
-  - `InteractiveAuthProvider` (device code flow)
-- `fabric_api_client.py` currently requests the scope `https://analysis.windows.net/powerbi/api/.default` for every call.
-- `main.py` still uses an inline `FabricAPIClient` implementation that supports service principals only.
-- Several MCP tools rely on Fabric REST APIs (workspaces, lakehouses, SQL metadata) and should work with either authentication mode.
+## Status: ✅ IMPLEMENTED
 
-## Goal
-Complete the authentication refactor so that every MCP tool seamlessly uses either service principal or interactive user authentication, requesting the correct scopes for whichever provider is active.
+This feature is now complete and fully operational. All design goals have been implemented and tested with live Fabric workspaces.
 
-## Current Gaps
-1. **Legacy client usage in `main.py`**
-   - `main.py` instantiates the old inline `FabricAPIClient` that requires `FABRIC_CLIENT_SECRET`.
-   - Needs to switch to `create_auth_provider_from_env()` + the new `FabricAPIClient` class.
-2. **Scope selection**
-   - Service principal tokens work with `.default` scope (app-level permissions).
-   - Device-code tokens require explicit delegated scopes. Current REST tools need `Workspace.Read.All`.
-   - Future features (SQL endpoint discovery) will also require `SqlEndpoint.Read.All` or `Item.Read.All`.
-3. **Documentation**
-   - README and `.env.example` still describe service-principal-only setup.
-   - Need instructions for signing in via device code and consenting to delegated scopes.
+## Implementation Summary
 
-## Proposed Updates
-1. **main.py**
-   - Replace the inline client with:
-     ```python
-     from fabric_auth import create_auth_provider_from_env
-     from fabric_api_client import FabricAPIClient
-     
-     auth_provider = create_auth_provider_from_env()
-     fabric_api = FabricAPIClient(auth_provider)
-     ```
-   - Ensure all REST tools reference this shared `fabric_api` instance.
+### What Was Built
+1. ✅ **Dual Auth Factory**: `create_auth_provider_from_env()` automatically selects auth mode based on environment
+2. ✅ **Interactive Provider**: Device code flow with token caching (`~/.fabric_mcp_token_cache.json`)
+3. ✅ **Service Principal Provider**: Client credentials flow for automation/CI-CD
+4. ✅ **Refactored main.py**: Uses `FabricMCPService` with factory-based authentication
+5. ✅ **REST Client**: Single `FabricAPIClient` instance shared across all tools
+6. ✅ **SQL Client**: Token-based SQL authentication supporting both auth modes
+7. ✅ **Documentation**: Comprehensive README, .env.example, and integration guide
+8. ✅ **Real-World Validation**: All 7 MCP tools tested against live Fabric workspaces
 
-2. **fabric_api_client.py**
-   - Allow per-provider scope selection:
-     - Service principal → `SCOPES_SP = ["https://analysis.windows.net/powerbi/api/.default"]`
-     - Interactive/user → `SCOPES_USER = [
-         "https://analysis.windows.net/powerbi/api/Workspace.Read.All"
-       ]`
-   - Implementation options:
-     - Add a `preferred_scopes` property to `BaseAuthProvider` subclasses.
-     - Or pass a scope list into `FabricAPIClient` at construction time based on provider type.
+### How It Works
+- **No env vars set** → Interactive auth (device code flow)
+- **`FABRIC_CLIENT_SECRET` set** → Service principal auth (client credentials)
+- Both modes use `.default` scope which works for all current operations
+- Token management is transparent to MCP tools
 
-3. **README + `.env.example`**
-   - Document both authentication workflows.
-   - Mention the delegated scopes needed for interactive sign-in.
-   - Highlight that service principals still require the usual tenant/app configuration.
+### Files Implementing the Feature
+- `fabric_auth.py` - Authentication providers and factory
+- `fabric_api_client.py` - REST API client
+- `fabric_sql_client.py` - SQL endpoint client  
+- `fabric_mcp_service.py` - Service layer using auth factory
+- `main.py` - MCP tool definitions
+- `README.md` - User documentation
+- `.env.example` - Configuration examples
 
-4. **Testing/Validation**
-   - Verify service principal flow still works (existing functionality).
-   - Sign in via device code and confirm the MCP tools (workspaces/lakehouses/SQL) function with user tokens.
+### Comprehensive Documentation
 
-## Future Coding Prompt
-> Update the authentication wiring so `main.py` uses the new `FabricAPIClient` together with `create_auth_provider_from_env`, and modify `fabric_api_client.py` to request the correct scopes for service principals vs interactive users. Refresh documentation to cover both flows.
+**For detailed documentation on dual authentication design, implementation, usage patterns, and troubleshooting, see:**
 
----
-Use this document as the reference when picking up the authentication refactor later.
+→ **`docs/3-dual-authentication-system.md`**
+
+This file contains:
+- Architecture diagrams
+- Detailed explanation of both authentication modes
+- Step-by-step setup guides (interactive and service principal)
+- Token acquisition and caching strategies
+- Security considerations and best practices
+- Integration patterns with MCP tools
+- Troubleshooting guide
+- Future enhancement ideas
+
+## Validation Summary
+
+✅ Interactive auth tested: Device code flow → token cache → automatic refresh
+✅ Service principal tested: Client credentials → token acquisition
+✅ All 7 MCP tools working with both auth modes
+✅ REST API discovery (workspaces, lakehouses, tables)
+✅ SQL endpoint queries (schema discovery, data sampling, custom analytics)
+✅ Token-based SQL authentication with ODBC Driver 17
+✅ Schema-enabled lakehouse support (SQL-based discovery)
+✅ Real Fabric data: SQLDemo workspace, SalesLakehouse, 16 tables, analytics queries
+
+## Next Steps
+
+This feature is production-ready. The feature planning file can be archived.
+
+For ongoing work related to authentication, refer to the comprehensive documentation in `docs/3-dual-authentication-system.md` rather than this file.
