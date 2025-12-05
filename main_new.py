@@ -141,12 +141,19 @@ async def get_table_schema(workspace_id: str, lakehouse_id: str, table_name: str
     Args:
         workspace_id: The ID of the workspace containing the lakehouse
         lakehouse_id: The ID of the lakehouse containing the table
-        table_name: The name of the table to analyze (use get_lakehouse_tables to find table names)
+        table_name: The name of the table (can be 'TableName' or 'schema.TableName')
     
     Returns:
         Dictionary with table name and array of column definitions including data types,
         nullability, constraints, and positioning information.
     """
+    # Handle both 'schema.table' and 'table' formats
+    if '.' in table_name:
+        schema_name, table_only = table_name.split('.', 1)
+        schema_filter = f"TABLE_SCHEMA = '{schema_name}' AND TABLE_NAME = '{table_only}'"
+    else:
+        schema_filter = f"TABLE_NAME = '{table_name}'"
+    
     schema_query = f"""
     SELECT 
         COLUMN_NAME as column_name,
@@ -158,7 +165,7 @@ async def get_table_schema(workspace_id: str, lakehouse_id: str, table_name: str
         NUMERIC_SCALE as scale,
         ORDINAL_POSITION as position
     FROM INFORMATION_SCHEMA.COLUMNS
-    WHERE TABLE_NAME = '{table_name}'
+    WHERE {schema_filter}
     ORDER BY ORDINAL_POSITION
     """
     
@@ -198,10 +205,17 @@ async def get_table_sample_data(
     Args:
         workspace_id: The ID of the workspace containing the lakehouse
         lakehouse_id: The ID of the lakehouse containing the table
-        table_name: The name of the table to sample
+        table_name: The name of the table (can be 'TableName' or 'schema.TableName')
         limit: Number of rows to return (default: 10)
     """
-    sample_query = f"SELECT TOP {limit} * FROM [{table_name}]"
+    # Handle both 'schema.table' and 'table' formats
+    if '.' in table_name:
+        # Already qualified: schema.table
+        parts = table_name.split('.')
+        sample_query = f"SELECT TOP {limit} * FROM [{parts[0]}].[{parts[1]}]"
+    else:
+        # Unqualified: just table name
+        sample_query = f"SELECT TOP {limit} * FROM [{table_name}]"
     
     try:
         results = await fabric_sql.execute_query(workspace_id, lakehouse_id, sample_query)
