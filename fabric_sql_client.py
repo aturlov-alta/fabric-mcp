@@ -141,12 +141,7 @@ class FabricSQLClient:
                 rows = cursor.fetchall()
                 
                 # Convert to list of dictionaries
-                results = []
-                for row in rows:
-                    row_dict = {}
-                    for i, value in enumerate(row):
-                        row_dict[columns[i]] = value
-                    results.append(row_dict)
+                results = [dict(zip(columns, row)) for row in rows]
                 
                 return results
                 
