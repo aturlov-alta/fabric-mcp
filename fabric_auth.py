@@ -7,6 +7,7 @@ This module provides different authentication strategies for accessing Microsoft
 """
 
 import os
+import sys
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import List
@@ -129,7 +130,6 @@ class InteractiveAuthProvider(BaseAuthProvider):
                 return result["access_token"]
         
         # If silent acquisition fails, use device code flow
-        import sys
         print("\n" + "=" * 70, file=sys.stderr)
         print("AUTHENTICATION REQUIRED FOR MICROSOFT FABRIC", file=sys.stderr)
         print("=" * 70, file=sys.stderr)
@@ -148,14 +148,12 @@ class InteractiveAuthProvider(BaseAuthProvider):
         
         if "access_token" in result:
             self._save_token_cache()
-            import sys
             print("=" * 70, file=sys.stderr)
             print("Authentication successful!", file=sys.stderr)
             print("=" * 70 + "\n", file=sys.stderr)
             return result["access_token"]
         else:
             error_msg = result.get('error_description', 'Unknown error')
-            import sys
             print(f"\nAuthentication failed: {error_msg}", file=sys.stderr)
             raise Exception(f"Could not acquire token: {error_msg}")
 
