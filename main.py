@@ -1,41 +1,34 @@
-"""
-Fabric MCP Server - Model Context Protocol server for Microsoft Fabric
+"""Fabric MCP Server - Model Context Protocol server for Microsoft Fabric
 
 This MCP server provides AI assistants (like GitHub Copilot) with tools to interact with 
-Microsoft Fabric workspaces, lakehouses, and data through both REST APIs and SQL endpoints.
+Microsoft Fabric workspaces, lakehouses, and data through REST APIs and SQL endpoints.
 
 Available Tools:
 - list_workspaces: Discover all accessible Fabric workspaces
 - list_lakehouses: List lakehouses within a specific workspace  
-- get_lakehouse_tables: Enumerate tables and views in a lakehouse
-- get_table_schema: Retrieve detailed schema information for tables
-- get_table_sample_data: Sample data from tables for exploration
-- execute_custom_sql_query: Run custom SQL queries for analytics
+- get_lakehouse_tables: Enumerate all tables in a lakehouse (supports schema-enabled lakehouses)
+- get_table_schema: Retrieve detailed column metadata from tables
+- get_table_sample_data: Sample data from tables for exploration and understanding
+- execute_custom_sql_query: Run custom SQL queries for analytics and reporting
+- sign_out: Clear cached authentication tokens (interactive auth only)
 
-Authentication: Supports both interactive (device code flow) and service principal authentication
+Authentication: Supports both interactive (device code flow) and service principal auth
+Backend: Uses FastMCP for stdio transport to VS Code
 Requirements: See README.md for setup instructions
 
-Usage: Configure in VS Code via mcp.json to enable Copilot integration
+Usage: Configure in VS Code via mcp.json to enable automatic Copilot integration
 """
 
 from typing import Any
-from dotenv import load_dotenv
 from fastmcp import FastMCP
 
-from fabric_auth import create_auth_provider_from_env
-from fabric_api_client import FabricAPIClient
-from fabric_sql_client import FabricSQLClient
-
-# Load environment variables
-load_dotenv()
+from fabric_mcp_service import FabricMCPService
 
 # Initialize FastMCP server
 mcp = FastMCP("Fabric MCP Server")
 
-# Initialize authentication and clients
-auth_provider = create_auth_provider_from_env()
-fabric_api = FabricAPIClient(auth_provider)
-fabric_sql = FabricSQLClient(auth_provider, fabric_api)
+# Initialize service layer that contains all business logic
+service = FabricMCPService()
 
 
 # ============================================================================
@@ -44,89 +37,69 @@ fabric_sql = FabricSQLClient(auth_provider, fabric_api)
 
 @mcp.tool()
 async def list_workspaces() -> dict[str, Any]:
-    """
-    List all Microsoft Fabric workspaces accessible to the authenticated user.
+    """List all Fabric workspaces the user has access to.
     
-    Returns a list of workspaces with their IDs and display names.
-    Use this tool when you need to discover available workspaces or find a workspace ID.
+    This is the first tool to call when exploring Fabric. Returns workspace IDs needed
+    for all other discovery and query tools.
+    
+    Use this when:
+    - Starting exploration of available Fabric resources
+    - Need to find a specific workspace ID
+    - Want to see all available workspaces
+    
+    Returns:
+        dict: {"workspaces": [{"id": str, "name": str}, ...]}
     """
-    data = await fabric_api.get("/workspaces")
-    workspaces = [{"id": w["id"], "name": w["displayName"]} for w in data.get("value", [])]
-    return {"workspaces": workspaces}
+    return await service.list_workspaces()
 
 
 @mcp.tool()
 async def list_lakehouses(workspace_id: str) -> dict[str, Any]:
-    """
-    List all lakehouses in a specific Microsoft Fabric workspace.
+    """List all lakehouses in a workspace.
+    
+    Call this after list_workspaces() to find lakehouses. Returns lakehouse IDs needed
+    for table discovery and queries.
+    
+    Use this when:
+    - Finding which lakehouses exist in a workspace
+    - Need a lakehouse ID for data exploration
+    - Exploring data storage locations
     
     Args:
-        workspace_id: The ID of the workspace to query (use list_workspaces to find workspace IDs)
+        workspace_id: Workspace ID (from list_workspaces)
     
     Returns:
-        Dictionary containing array of lakehouses with their IDs and display names.
-        Use lakehouse IDs with other tools to explore tables and data.
+        dict: {"lakehouses": [{"id": str, "name": str}, ...]}
     """
-    data = await fabric_api.get(f"/workspaces/{workspace_id}/lakehouses")
-    
-    # Extract lakehouses from the response
-    lakehouses_raw = data.get("value", [])
-    
-    # Process each lakehouse
-    lakehouses = []
-    for lakehouse in lakehouses_raw:
-        lakehouses.append({
-            "id": lakehouse["id"], 
-            "name": lakehouse["displayName"]
-        })
-    
-    return {"lakehouses": lakehouses}
+    return await service.list_lakehouses(workspace_id)
 
 
 @mcp.tool()
 async def get_lakehouse_tables(workspace_id: str, lakehouse_id: str) -> dict[str, Any]:
-    """
-    Get all tables in a specific lakehouse for schema discovery.
-    Works with both schema-enabled and schema-less lakehouses.
+    """List all tables in a lakehouse (supports schema-enabled lakehouses).
+    
+    Returns all tables with schema prefixes (e.g., "silver.customers") for use in
+    other tools. SQL-based discovery works reliably with complex schemas.
+    
+    Use this when:
+    - Discovering available tables for analysis
+    - Understanding lakehouse structure
+    - Getting table names to use with get_table_schema() or get_table_sample_data()
 
     Args:
-        workspace_id: The ID of the workspace containing the lakehouse
-        lakehouse_id: The ID of the lakehouse to query tables from
+        workspace_id: Workspace ID
+        lakehouse_id: Lakehouse ID (from list_lakehouses)
     
     Returns:
-        Dictionary containing array of tables with their schemas, names, and types.
-        Use table names with get_table_schema and get_table_sample_data tools.
-    """
-    # Use SQL query to discover tables (works for both schema-enabled and schema-less lakehouses)
-    query = """
-    SELECT 
-        TABLE_SCHEMA as schema_name,
-        TABLE_NAME as table_name,
-        TABLE_TYPE as table_type
-    FROM INFORMATION_SCHEMA.TABLES 
-    WHERE TABLE_TYPE = 'BASE TABLE'
-    ORDER BY TABLE_SCHEMA, TABLE_NAME
-    """
-    
-    try:
-        results = await fabric_sql.execute_query(workspace_id, lakehouse_id, query)
-        
-        tables = []
-        for row in results:
-            tables.append({
-                "schema": row.get("schema_name"),
-                "name": row.get("table_name"),
-                "type": row.get("table_type", "BASE TABLE"),
-                "full_name": f"{row.get('schema_name')}.{row.get('table_name')}"
-            })
-        
-        return {"tables": tables}
-        
-    except Exception as e:
-        return {
-            "tables": [],
-            "error": f"Failed to retrieve tables: {str(e)}"
+        dict: {
+            "tables": [
+                {"schema": str, "name": str, "type": str, "full_name": str},
+                ...
+            ]
         }
+    Note: Use the "full_name" field (e.g., "silver.customers") with other tools.
+    """
+    return await service.get_lakehouse_tables(workspace_id, lakehouse_id)
 
 
 # ============================================================================
@@ -135,61 +108,28 @@ async def get_lakehouse_tables(workspace_id: str, lakehouse_id: str) -> dict[str
 
 @mcp.tool()
 async def get_table_schema(workspace_id: str, lakehouse_id: str, table_name: str) -> dict[str, Any]:
-    """
-    Get detailed schema information for a specific table including column definitions.
+    """Get column definitions (names, types, nullability) for a table.
+    
+    Use this to understand table structure before writing queries or sampling data.
+    Returns complete metadata needed to write correct SQL.
+    
+    Use this when:
+    - Understanding table structure before queries
+    - Checking column names and data types
+    - Verifying nullability or precision requirements
+    - Planning SQL joins or filters
     
     Args:
-        workspace_id: The ID of the workspace containing the lakehouse
-        lakehouse_id: The ID of the lakehouse containing the table
-        table_name: The name of the table (can be 'TableName' or 'schema.TableName')
+        workspace_id: Workspace ID
+        lakehouse_id: Lakehouse ID
+        table_name: Table name (use full_name from get_lakehouse_tables, e.g., "silver.customers")
     
     Returns:
-        Dictionary with table name and array of column definitions including data types,
-        nullability, constraints, and positioning information.
+        dict with "table_name" and "columns" array:
+        - Each column has: name, data_type, is_nullable, precision, scale, position
+        Example: {"name": "customer_id", "data_type": "INT", "is_nullable": False, ...}
     """
-    # Handle both 'schema.table' and 'table' formats
-    if '.' in table_name:
-        schema_name, table_only = table_name.split('.', 1)
-        schema_filter = f"TABLE_SCHEMA = '{schema_name}' AND TABLE_NAME = '{table_only}'"
-    else:
-        schema_filter = f"TABLE_NAME = '{table_name}'"
-    
-    schema_query = f"""
-    SELECT 
-        COLUMN_NAME as column_name,
-        DATA_TYPE as data_type,
-        IS_NULLABLE as is_nullable,
-        COLUMN_DEFAULT as default_value,
-        CHARACTER_MAXIMUM_LENGTH as max_length,
-        NUMERIC_PRECISION as precision,
-        NUMERIC_SCALE as scale,
-        ORDINAL_POSITION as position
-    FROM INFORMATION_SCHEMA.COLUMNS
-    WHERE {schema_filter}
-    ORDER BY ORDINAL_POSITION
-    """
-    
-    try:
-        results = await fabric_sql.execute_query(workspace_id, lakehouse_id, schema_query)
-        
-        columns = []
-        for row in results:
-            columns.append({
-                "name": row["column_name"],
-                "data_type": row["data_type"],
-                "is_nullable": row["is_nullable"] == "YES",
-                "is_primary_key": False,
-                "default_value": row["default_value"],
-                "max_length": row["max_length"],
-                "precision": row["precision"],
-                "scale": row["scale"],
-                "position": row["position"]
-            })
-        
-        return {"table_name": table_name, "columns": columns}
-        
-    except Exception as e:
-        return {"table_name": table_name, "columns": [], "error": str(e)}
+    return await service.get_table_schema(workspace_id, lakehouse_id, table_name)
 
 
 @mcp.tool()
@@ -199,40 +139,27 @@ async def get_table_sample_data(
     table_name: str,
     limit: int = 10
 ) -> dict[str, Any]:
-    """
-    Get sample data from a table to understand its content and structure.
+    """Peek at data in a table (sample rows) to understand content and format.
+    
+    Returns first N rows showing actual values, data quality, and content patterns.
+    Faster than full queries for quick exploration.
+    
+    Use this when:
+    - Exploring table content before writing queries
+    - Checking data quality and formats
+    - Seeing real values to understand field meanings
+    - Verifying table is populated before complex analysis
     
     Args:
-        workspace_id: The ID of the workspace containing the lakehouse
-        lakehouse_id: The ID of the lakehouse containing the table
-        table_name: The name of the table (can be 'TableName' or 'schema.TableName')
-        limit: Number of rows to return (default: 10)
-    """
-    # Handle both 'schema.table' and 'table' formats
-    if '.' in table_name:
-        # Already qualified: schema.table
-        parts = table_name.split('.')
-        sample_query = f"SELECT TOP {limit} * FROM [{parts[0]}].[{parts[1]}]"
-    else:
-        # Unqualified: just table name
-        sample_query = f"SELECT TOP {limit} * FROM [{table_name}]"
+        workspace_id: Workspace ID
+        lakehouse_id: Lakehouse ID
+        table_name: Table name (use full_name from get_lakehouse_tables, e.g., "silver.customers")
+        limit: Rows to return (default: 10). Increase for larger samples.
     
-    try:
-        results = await fabric_sql.execute_query(workspace_id, lakehouse_id, sample_query)
-        
-        return {
-            "table_name": table_name,
-            "sample_rows": results,
-            "row_count": len(results)
-        }
-        
-    except Exception as e:
-        return {
-            "table_name": table_name,
-            "sample_rows": [],
-            "row_count": 0,
-            "error": f"Failed to get sample data: {str(e)}"
-        }
+    Returns:
+        dict with "table_name", "sample_rows" array, and "row_count"
+    """
+    return await service.get_table_sample_data(workspace_id, lakehouse_id, table_name, limit)
 
 
 @mcp.tool()
@@ -241,31 +168,29 @@ async def execute_custom_sql_query(
     lakehouse_id: str,
     query: str
 ) -> dict[str, Any]:
-    """
-    Execute a custom SQL query against the lakehouse and return results.
+    """Execute any SQL query for analysis, aggregation, and reporting.
+    
+    Supports SELECT with JOINs, GROUP BY, WHERE, aggregations, and calculated fields.
+    Use after understanding tables with get_lakehouse_tables and get_table_schema.
+    
+    Use this when:
+    - Running analytical queries (e.g., revenue by category)
+    - Joining multiple tables
+    - Aggregating data (SUM, COUNT, GROUP BY)
+    - Filtering and transforming data
+    - Complex business logic queries
     
     Args:
-        workspace_id: The ID of the workspace containing the lakehouse
-        lakehouse_id: The ID of the lakehouse to query
-        query: The SQL query to execute
+        workspace_id: Workspace ID
+        lakehouse_id: Lakehouse ID
+        query: SQL query (T-SQL dialect, e.g., "SELECT TOP 100 * FROM [schema].[table]")
+    
+    Returns:
+        dict with "success", "query", "row_count", and "results" array
+        Example success: {"success": True, "row_count": 42, "results": [{...}, ...]}
+        Example error: {"success": False, "error": "[error message]"}
     """
-    try:
-        results = await fabric_sql.execute_query(workspace_id, lakehouse_id, query)
-        
-        return {
-            "query": query,
-            "success": True,
-            "row_count": len(results),
-            "results": results
-        }
-        
-    except Exception as e:
-        return {
-            "query": query,
-            "success": False,
-            "error": str(e),
-            "results": []
-        }
+    return await service.execute_custom_sql_query(workspace_id, lakehouse_id, query)
 
 
 # ============================================================================
@@ -274,34 +199,21 @@ async def execute_custom_sql_query(
 
 @mcp.tool()
 async def sign_out() -> dict[str, str]:
-    """
-    Sign out and clear cached authentication tokens.
+    """Sign out and clear cached authentication tokens.
     
-    Use this tool to remove stored credentials and force re-authentication
-    on the next request. Only applicable for interactive authentication mode.
+    Use this to force re-authentication (interactive auth) or when switching users.
+    Only affects interactive authentication mode (device code flow).
+    
+    Use this when:
+    - Switching to a different user account
+    - Fixing authentication issues
+    - Testing multi-user scenarios
+    - Debugging permission errors
     
     Returns:
-        Dictionary with status and message indicating the result of sign-out operation.
+        dict: {"status": "success" or "not_applicable", "message": str}
     """
-    from fabric_auth import InteractiveAuthProvider
-    
-    if isinstance(auth_provider, InteractiveAuthProvider):
-        was_deleted = auth_provider.clear_token_cache()
-        if was_deleted:
-            return {
-                "status": "success",
-                "message": "Signed out successfully. You will be prompted to authenticate on the next request."
-            }
-        else:
-            return {
-                "status": "success",
-                "message": "No cached tokens found. Already signed out."
-            }
-    else:
-        return {
-            "status": "not_applicable",
-            "message": "Sign out is not applicable for service principal authentication mode."
-        }
+    return service.sign_out()
 
 
 # ============================================================================
