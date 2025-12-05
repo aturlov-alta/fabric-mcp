@@ -15,7 +15,7 @@ class FabricSQLClient:
     """
     SQL client for querying Fabric lakehouse data via SQL endpoint.
     
-    This client uses ODBC Driver 18 for SQL Server with Azure AD authentication
+    This client uses ODBC Driver 17 for SQL Server with Azure AD authentication
     to execute queries against Fabric lakehouse SQL endpoints.
     """
     
@@ -42,7 +42,7 @@ class FabricSQLClient:
             str: ODBC connection string
         """
         return (
-            f"Driver={{ODBC Driver 18 for SQL Server}};"
+            f"Driver={{ODBC Driver 17 for SQL Server}};"
             f"Server={sql_endpoint};"
             f"Database={lakehouse_name};"
             f"Encrypt=yes;"
@@ -78,7 +78,17 @@ class FabricSQLClient:
         if not connection_string:
             raise Exception(f"No SQL endpoint found for lakehouse {lakehouse_id}")
         
-        return connection_string, lakehouse_name
+        # Extract server address from connection string (format: "Server=xyz.datawarehouse.fabric.microsoft.com")
+        sql_endpoint = connection_string
+        if "Server=" in connection_string:
+            # Parse out just the server address
+            parts = connection_string.split(";")
+            for part in parts:
+                if part.startswith("Server="):
+                    sql_endpoint = part.replace("Server=", "")
+                    break
+        
+        return sql_endpoint, lakehouse_name
     
     async def execute_query(
         self,
@@ -112,7 +122,9 @@ class FabricSQLClient:
             # Convert token to bytes for SQL authentication
             # SQL_COPT_SS_ACCESS_TOKEN = 1256
             token_bytes = token.encode('utf-16-le')
-            token_struct = bytes([0x01]) + bytes([0x00]) + token_bytes + bytes([0x00, 0x00])
+            # Correct format: length (4 bytes, little-endian) + token bytes
+            token_length = len(token_bytes)
+            token_struct = token_length.to_bytes(4, byteorder='little') + token_bytes
             
             # Connect with access token
             with pyodbc.connect(
