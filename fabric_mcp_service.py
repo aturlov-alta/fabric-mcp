@@ -88,6 +88,21 @@ class FabricMCPService:
         # Escape any existing square brackets by doubling them
         escaped = identifier.replace("]", "]]")
         return f"[{escaped}]"
+    
+    @staticmethod
+    def _validate_limit(limit: int) -> None:
+        """Validate that a limit value is a positive integer.
+        
+        Args:
+            limit: Row limit for SQL queries
+            
+        Raises:
+            ValueError: If limit is not a positive integer
+        """
+        if not isinstance(limit, int):
+            raise ValueError(f"Limit must be an integer, got {type(limit).__name__}")
+        if limit <= 0:
+            raise ValueError(f"Limit must be a positive integer, got {limit}")
 
     # Workspace and lakehouse operations
     async def list_workspaces(self) -> dict[str, Any]:
@@ -268,6 +283,17 @@ class FabricMCPService:
                 "row_count": int
             } or {..., "row_count": 0, "error": str} on failure
         """
+        # Validate limit parameter to prevent SQL injection
+        try:
+            self._validate_limit(limit)
+        except ValueError as e:
+            return {
+                "table_name": table_name,
+                "sample_rows": [],
+                "row_count": 0,
+                "error": f"Invalid limit parameter: {str(e)}",
+            }
+        
         # Construct SQL with proper schema qualification if provided
         try:
             dot_count = table_name.count(".")
