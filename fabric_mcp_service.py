@@ -14,6 +14,7 @@ Usage:
     workspaces = await service.list_workspaces()
 """
 
+import string
 from typing import Any
 from dotenv import load_dotenv
 
@@ -62,7 +63,8 @@ class FabricMCPService:
         
         # Allow alphanumeric, underscore, and hyphen (common in Fabric table names)
         # Disallow quotes, brackets, semicolons, and other SQL metacharacters
-        invalid_chars = set(identifier) - set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-")
+        allowed_chars = set(string.ascii_letters + string.digits + '_-')
+        invalid_chars = set(identifier) - allowed_chars
         if invalid_chars:
             raise ValueError(f"Invalid characters in identifier: {invalid_chars}")
     
@@ -183,12 +185,14 @@ class FabricMCPService:
                 # Validate both parts to prevent SQL injection
                 self._validate_sql_identifier(schema_name)
                 self._validate_sql_identifier(table_only)
-                # Use parameterized approach with validated identifiers
-                schema_filter = f"TABLE_SCHEMA = {self._quote_identifier(schema_name)} AND TABLE_NAME = {self._quote_identifier(table_only)}"
+                # Use validated identifiers in string literals for WHERE clause
+                # After validation, they're safe to use as string values
+                schema_filter = f"TABLE_SCHEMA = '{schema_name}' AND TABLE_NAME = '{table_only}'"
             elif dot_count == 0:
                 # Validate table name to prevent SQL injection
                 self._validate_sql_identifier(table_name)
-                schema_filter = f"TABLE_NAME = {self._quote_identifier(table_name)}"
+                # Use validated identifier in string literal for WHERE clause
+                schema_filter = f"TABLE_NAME = '{table_name}'"
             else:
                 return {
                     "table_name": table_name,
@@ -267,10 +271,7 @@ class FabricMCPService:
         # Construct SQL with proper schema qualification if provided
         try:
             if "." in table_name:
-                parts = table_name.split(".", 1)
-                if len(parts) != 2:
-                    raise ValueError("Invalid table name format")
-                schema_name, table_only = parts
+                schema_name, table_only = table_name.split(".", 1)
                 # Validate both parts to prevent SQL injection
                 self._validate_sql_identifier(schema_name)
                 self._validate_sql_identifier(table_only)
