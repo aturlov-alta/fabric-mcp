@@ -337,7 +337,7 @@ Copilot and other MCP clients don't need to worry about authentication:
 
 **Problem**: "Device code flow timeout"
 ```
-Solution: Visit https://microsoft.com/devicelogin within 15 minutes and enter the displayed code
+Solution: Visit https://microsoft.com/devicelogin within 5 minutes and enter the displayed code
 ```
 
 **Problem**: "Permission denied" errors
