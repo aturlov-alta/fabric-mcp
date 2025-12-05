@@ -135,12 +135,22 @@ class FabricMCPService:
                 ]
             } or {"table_name": str, "columns": [], "error": str} on failure
         """
-        # Parse schema.table format if provided
-        if "." in table_name:
+        # Parse schema.table format if provided, and validate input
+        dot_count = table_name.count(".")
+        if dot_count == 1:
             schema_name, table_only = table_name.split(".", 1)
             schema_filter = f"TABLE_SCHEMA = '{schema_name}' AND TABLE_NAME = '{table_only}'"
-        else:
+        elif dot_count == 0:
             schema_filter = f"TABLE_NAME = '{table_name}'"
+        else:
+            return {
+                "table_name": table_name,
+                "columns": [],
+                "error": (
+                    "Invalid table name format. "
+                    "Expected 'table' or 'schema.table', got: '{}'".format(table_name)
+                ),
+            }
 
         schema_query = f"""
         SELECT 
