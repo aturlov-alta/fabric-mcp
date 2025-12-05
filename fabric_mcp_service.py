@@ -99,7 +99,7 @@ class FabricMCPService:
         Raises:
             ValueError: If limit is not a positive integer
         """
-        if not isinstance(limit, int):
+        if not isinstance(limit, int) or isinstance(limit, bool):
             raise ValueError(f"Limit must be an integer, got {type(limit).__name__}")
         if limit <= 0:
             raise ValueError(f"Limit must be a positive integer, got {limit}")
