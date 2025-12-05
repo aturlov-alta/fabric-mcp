@@ -75,8 +75,8 @@ class FabricMCPService:
         
         return bool(re.match(cls._SQL_IDENTIFIER_PATTERN, identifier))
     
-    @staticmethod
-    def _get_invalid_identifier_error(identifier: str) -> str:
+    @classmethod
+    def _get_invalid_identifier_error(cls, identifier: str) -> str:
         """Get standardized error message for invalid SQL identifiers.
         
         Args:
