@@ -10,7 +10,7 @@ import os
 import sys
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 import msal
 
 
@@ -46,7 +46,7 @@ class InteractiveAuthProvider(BaseAuthProvider):
         self,
         client_id: str = "ea0616ba-638b-4df5-95b9-636659ae5121",  # Power BI default
         tenant_id: str = "common",
-        token_cache_file: Path = None
+        token_cache_file: Optional[Path] = None
     ):
         """
         Initialize interactive authentication provider.
