@@ -1,0 +1,10 @@
+{
+	"servers": {
+		"fabric": {
+			"type": "stdio",
+			"command": "${workspaceFolder}/env/python",
+			"args": ["main.py"],
+			"cwd": "${workspaceFolder}"
+		}
+	}
+}
